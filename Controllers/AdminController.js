@@ -1,90 +1,273 @@
-const User = require("../models/User");
+const User     = require("../models/User");
+const Wallet   = require("../models/Wallet");
+const Campaign = require("../models/Campaign");
 const Settings = require("../models/Settings");
 
-// 🔹 Block/Unblock User
+// ── USERS ──────────────────────────────────────────────────────
+
+exports.getAllUsers = async (req, res) => {
+  try {
+    const { search, role, page = 1, limit = 20 } = req.query;
+    const filter = {};
+    if (role) filter.role = role;
+    if (search) filter.$or = [
+      { fullName: { $regex: search, $options: "i" } },
+      { email:    { $regex: search, $options: "i" } },
+    ];
+    const users = await User.find(filter).select("-password")
+      .sort({ createdAt: -1 })
+      .skip((page - 1) * limit)
+      .limit(Number(limit));
+    const total = await User.countDocuments(filter);
+    res.json({ users, total, page: +page, pages: Math.ceil(total / limit) });
+  } catch (e) {
+    res.status(500).json({ message: e.message });
+  }
+};
+
 exports.blockUser = async (req, res) => {
   try {
     const { userId, action } = req.body;
     const user = await User.findById(userId);
-
     if (!user) return res.status(404).json({ message: "User not found" });
-
     user.isBlocked = action === "block";
     await user.save();
-
-    'res.json({ message: User ${action}ed successfully, user })';
-  } catch (error) {
-    res.status(500).json({ message: error.message });
+    res.json({ message: `User ${action}ed successfully` });
+  } catch (e) {
+    res.status(500).json({ message: e.message });
   }
 };
 
-// 🔹 Change Role
 exports.changeRole = async (req, res) => {
   try {
     const { userId, role } = req.body;
-    const user = await User.findById(userId);
-
-    if (!user) return res.status(404).json({ message: "User not found" });
-    if (!["user", "moderator"].includes(role)) {
+    if (!["user", "moderator", "admin", "superadmin"].includes(role))
       return res.status(400).json({ message: "Invalid role" });
-    }
-
-    user.role = role;
-    await user.save();
-
-    res.json({ message: "Role updated successfully", user });
-  } catch (error) {
-    res.status(500).json({ message: error.message });
+    const user = await User.findByIdAndUpdate(userId, { role }, { new: true }).select("-password");
+    if (!user) return res.status(404).json({ message: "User not found" });
+    res.json({ message: "Role updated", user });
+  } catch (e) {
+    res.status(500).json({ message: e.message });
   }
 };
 
-// 🔹 Analytics
+exports.assignBadge = async (req, res) => {
+  try {
+    const { userId, badge, referralLevel } = req.body;
+    const user = await User.findByIdAndUpdate(
+      userId, { badge, referralLevel }, { new: true }
+    ).select("-password");
+    if (!user) return res.status(404).json({ message: "User not found" });
+    res.json({ message: "Badge assigned", user });
+  } catch (e) {
+    res.status(500).json({ message: e.message });
+  }
+};
+
+// Superadmin sets which sections admin cannot see
+exports.updateAdminPermissions = async (req, res) => {
+  try {
+    const { userId, hiddenSections } = req.body;
+    const user = await User.findByIdAndUpdate(
+      userId, { hiddenSections }, { new: true }
+    ).select("-password");
+    if (!user) return res.status(404).json({ message: "User not found" });
+    res.json({ message: "Permissions updated", user });
+  } catch (e) {
+    res.status(500).json({ message: e.message });
+  }
+};
+
+// ── ANALYTICS ─────────────────────────────────────────────────
+
 exports.getAnalytics = async (req, res) => {
   try {
-    const totalUsers = await User.countDocuments();
-    const blockedUsers = await User.countDocuments({ isBlocked: true });
-    const moderators = await User.countDocuments({ role: "moderator" });
-    const topReferrals = await User.find().sort({ referrals: -1 }).limit(5);
+    const [totalUsers, blockedUsers, totalCampaigns, activeCampaigns] = await Promise.all([
+      User.countDocuments(),
+      User.countDocuments({ isBlocked: true }),
+      Campaign.countDocuments(),
+      Campaign.countDocuments({ status: "active" }),
+    ]);
 
-    res.json({ totalUsers, blockedUsers, moderators, topReferrals });
-  } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
-};
-
-// 🔹 Update Withdrawal Settings
-exports.updateWithdrawalSettings = async (req, res) => {
-  try {
-    const { minWithdrawal, withdrawalDays } = req.body;
-
-    let settings = await Settings.findOne();
-    if (!settings) settings = new Settings();
-
-    if (minWithdrawal !== undefined) settings.minWithdrawal = minWithdrawal;
-    if (withdrawalDays !== undefined) settings.withdrawalDays = withdrawalDays;
-
-    await settings.save();
-
-    res.json({ message: "Withdrawal settings updated", settings });
-  } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
-};
-
-// 🔹 Toggle Daily Check-In
-exports.toggleDailyCheckIn = async (req, res) => {
-  try {
-    let settings = await Settings.findOne();
-    if (!settings) settings = new Settings();
-
-    settings.dailyCheckInEnabled = !settings.dailyCheckInEnabled;
-    await settings.save();
+    const revenueAgg = await Campaign.aggregate([
+      { $match: { status: { $in: ["exhausted", "stopped"] } } },
+      { $group: { _id: null, total: { $sum: "$feeAmount" } } },
+    ]);
 
     res.json({
-      'message: Daily check-in ${settings.dailyCheckInEnabled ? "enabled" : "disabled"}'
-      :settings,
+      totalUsers,
+      blockedUsers,
+      totalCampaigns,
+      activeCampaigns,
+      totalRevenue: revenueAgg[0]?.total || 0,
     });
-  } catch (error) {
-    res.status(500).json({ message: error.message });
+  } catch (e) {
+    res.status(500).json({ message: e.message });
   }
 };
+
+// ── SETTINGS ──────────────────────────────────────────────────
+
+exports.getSettings = async (req, res) => {
+  try {
+    const s = await Settings.getSingleton();
+    res.json(s);
+  } catch (e) {
+    res.status(500).json({ message: e.message });
+  }
+};
+
+exports.updateSettings = async (req, res) => {
+  try {
+    const s = await Settings.getSingleton();
+    const allowed = [
+      "platformFeePct", "offerwallFeePct", "withdrawalFeePct",
+      "minWithdrawal", "withdrawalDays", "signupBonus",
+      "dailyCheckInEnabled", "dailyCheckInAmount",
+      "referralCommissionPct", "referralSystemCutPct", "referralTasksToActivate",
+      "autoApproveDays", "minPayGlobal",
+      "maintenanceMode", "maintenanceMessage",
+    ];
+    allowed.forEach((key) => { if (req.body[key] !== undefined) s[key] = req.body[key]; });
+    await s.save();
+    res.json({ message: "Settings updated", settings: s });
+  } catch (e) {
+    res.status(500).json({ message: e.message });
+  }
+};
+
+// ── BADGE TIERS ───────────────────────────────────────────────
+
+exports.updateBadgeTiers = async (req, res) => {
+  try {
+    const { tiers } = req.body;
+    if (!Array.isArray(tiers)) return res.status(400).json({ message: "tiers must be an array" });
+    const s = await Settings.getSingleton();
+    s.badgeTiers = tiers;
+    await s.save();
+    res.json({ message: "Badge tiers updated", tiers: s.badgeTiers });
+  } catch (e) {
+    res.status(500).json({ message: e.message });
+  }
+};
+
+// ── ANNOUNCEMENTS ─────────────────────────────────────────────
+
+exports.addAnnouncement = async (req, res) => {
+  try {
+    const { text } = req.body;
+    if (!text) return res.status(400).json({ message: "text is required" });
+    const s = await Settings.getSingleton();
+    s.announcements.push({ text, isActive: true });
+    await s.save();
+    res.json({ message: "Announcement added", announcements: s.announcements });
+  } catch (e) {
+    res.status(500).json({ message: e.message });
+  }
+};
+
+exports.updateAnnouncement = async (req, res) => {
+  try {
+    const s = await Settings.getSingleton();
+    const item = s.announcements.id(req.params.id);
+    if (!item) return res.status(404).json({ message: "Not found" });
+    if (req.body.text     !== undefined) item.text     = req.body.text;
+    if (req.body.isActive !== undefined) item.isActive = req.body.isActive;
+    await s.save();
+    res.json({ message: "Updated", announcements: s.announcements });
+  } catch (e) {
+    res.status(500).json({ message: e.message });
+  }
+};
+
+exports.deleteAnnouncement = async (req, res) => {
+  try {
+    const s = await Settings.getSingleton();
+    s.announcements.pull(req.params.id);
+    await s.save();
+    res.json({ message: "Deleted" });
+  } catch (e) {
+    res.status(500).json({ message: e.message });
+  }
+};
+
+// ── POLLS ─────────────────────────────────────────────────────
+
+exports.createPoll = async (req, res) => {
+  try {
+    const { question, options, expiresAt } = req.body;
+    if (!question || !options?.length)
+      return res.status(400).json({ message: "question and options required" });
+    const s = await Settings.getSingleton();
+    s.polls.push({ question, options: options.map((text) => ({ text, votes: [] })), isActive: true, expiresAt });
+    await s.save();
+    res.json({ message: "Poll created", polls: s.polls });
+  } catch (e) {
+    res.status(500).json({ message: e.message });
+  }
+};
+
+exports.closePoll = async (req, res) => {
+  try {
+    const s = await Settings.getSingleton();
+    const poll = s.polls.id(req.params.id);
+    if (!poll) return res.status(404).json({ message: "Poll not found" });
+    poll.isActive = false;
+    await s.save();
+    res.json({ message: "Poll closed" });
+  } catch (e) {
+    res.status(500).json({ message: e.message });
+  }
+};
+
+exports.deletePoll = async (req, res) => {
+  try {
+    const s = await Settings.getSingleton();
+    s.polls.pull(req.params.id);
+    await s.save();
+    res.json({ message: "Poll deleted" });
+  } catch (e) {
+    res.status(500).json({ message: e.message });
+  }
+};
+
+// ── DAILY CHECK-IN (route handler) ────────────────────────────
+
+exports.handleCheckIn = async (req, res) => {
+  try {
+    const settings = await Settings.getSingleton();
+
+    if (!settings.dailyCheckInEnabled)
+      return res.status(403).json({ message: "Daily check-in is currently disabled." });
+    if (settings.dailyCheckInAmount == null)
+      return res.status(503).json({ message: "Check-in reward not configured by admin yet." });
+
+    const user = await require("../models/User").findById(req.user._id);
+    const today = new Date(); today.setHours(0, 0, 0, 0);
+    if (user.lastCheckIn && new Date(user.lastCheckIn) >= today)
+      return res.status(400).json({ message: "Already claimed today. Come back tomorrow!" });
+
+    const wallet = await Wallet.findOne({ user: user._id });
+    wallet.balance += settings.dailyCheckInAmount;
+    wallet.earnedToday += settings.dailyCheckInAmount;
+    await wallet.save();
+
+    await WalletTransaction.create({
+      user: user._id,
+      type: "daily_checkin",
+      amount: settings.dailyCheckInAmount,
+      fee: 0,
+      netAmount: settings.dailyCheckInAmount,
+      status: "completed",
+    });
+
+    user.lastCheckIn = new Date();
+    await user.save();
+
+    res.json({ message: "Claimed!", amount: settings.dailyCheckInAmount, balance: wallet.balance });
+  } catch (e) {
+    res.status(500).json({ message: e.message });
+  }
+};
+
+const WalletTransaction = require("../models/WalletTransaction");
