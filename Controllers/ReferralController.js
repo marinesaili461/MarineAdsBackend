@@ -1,90 +1,101 @@
+const Referral  = require("../models/Referral");
+const Wallet    = require("../models/Wallet");
+const Settings  = require("../models/Settings");
+const WalletTransaction = require("../models/WalletTransaction");
 
-const Referral = require("../models/Referral");
-const Wallet = require("../models/Wallet");
-
-// 1️⃣ Add referral
 exports.addReferral = async ({ referrerId, refereeId }) => {
-try {
-// Prevent self-referral
-if (referrerId === refereeId) return;
-
-const existing = await Referral.findOne({ referrer: referrerId, referee: refereeId });  
-if (existing) return;  
-
-await Referral.create({ referrer: referrerId, referee: refereeId });
-
-} catch (error) {
-console.error("Error adding referral:", error);
-}
+  try {
+    if (String(referrerId) === String(refereeId)) return;
+    const existing = await Referral.findOne({ referrer: referrerId, referee: refereeId });
+    if (existing) return;
+    await Referral.create({ referrer: referrerId, referee: refereeId });
+  } catch (e) {
+    console.error("addReferral error:", e.message);
+  }
 };
 
-// 2️⃣ Update referee tasks
 exports.updateRefereeTasks = async (req, res) => {
-try {
-const { refereeId, tasksCompleted } = req.body;
+  try {
+    const { refereeId, tasksCompleted } = req.body;
+    const settings = await Settings.getSingleton();
 
-const referral = await Referral.findOne({ referee: refereeId });  
-if (!referral) return res.status(404).json({ message: "Referral not found" });  
+    if (settings.referralTasksToActivate == null)
+      return res.status(503).json({ message: "Referral settings not configured yet." });
 
-referral.tasksCompletedByReferee = tasksCompleted;  
-if (tasksCompleted >= 2) referral.status = "active";  
+    const referral = await Referral.findOne({ referee: refereeId });
+    if (!referral) return res.status(404).json({ message: "Referral not found" });
 
-await referral.save();  
-res.status(200).json({ message: "Referral updated", referral });
+    referral.tasksCompletedByReferee = tasksCompleted;
+    if (tasksCompleted >= settings.referralTasksToActivate) referral.status = "active";
+    await referral.save();
 
-} catch (error) {
-console.error(error);
-res.status(500).json({ message: "Server error" });
-}
+    res.json({ message: "Referral updated", referral });
+  } catch (e) {
+    res.status(500).json({ message: e.message });
+  }
 };
 
-// 3️⃣ Add referral earnings (called from task completion)
 exports.addReferralEarnings = async (refereeId, taskEarning) => {
-try {
-const referral = await Referral.findOne({ referee: refereeId, status: "active" });
-if (!referral) return;
+  try {
+    const settings = await Settings.getSingleton();
 
-const commission = taskEarning * 0.1; // 10% fee  
-const systemCut = commission * 0.15; // 15% cut  
-const netEarning = commission - systemCut;  
+    if (settings.referralCommissionPct == null || settings.referralSystemCutPct == null) {
+      console.warn("Referral commission not configured. Skipping.");
+      return;
+    }
 
-referral.earnedAmount += netEarning;  
-await referral.save();  
+    const referral = await Referral.findOne({ referee: refereeId, status: "active" });
+    if (!referral) return;
 
-// Add to referrer wallet  
-let wallet = await Wallet.findOne({ user: referral.referrer });  
-if (wallet) {  
-  wallet.balance += netEarning;  
-  await wallet.save();  
-} else {  
-  await Wallet.create({ user: referral.referrer, balance: netEarning });  
-}
+    const commission = taskEarning * (settings.referralCommissionPct / 100);
+    const systemCut  = commission  * (settings.referralSystemCutPct  / 100);
+    const netEarning = parseFloat((commission - systemCut).toFixed(4));
 
-} catch (error) {
-console.error("Error adding referral earnings:", error);
-}
+    referral.earnedAmount += netEarning;
+    await referral.save();
+
+    let wallet = await Wallet.findOne({ user: referral.referrer });
+    if (!wallet) wallet = await Wallet.create({ user: referral.referrer, balance: 0 });
+    wallet.balance += netEarning;
+    wallet.totalEarned += netEarning;
+    await wallet.save();
+
+    await WalletTransaction.create({
+      user: referral.referrer,
+      type: "referral_bonus",
+      amount: netEarning,
+      fee: 0,
+      netAmount: netEarning,
+      status: "completed",
+      meta: { refereeId },
+    });
+  } catch (e) {
+    console.error("addReferralEarnings error:", e.message);
+  }
 };
 
-// 4️⃣ Get referral stats
 exports.getReferralStats = async (req, res) => {
-try {
-const userId = req.user._id;
-const referrals = await Referral.find({ referrer: userId });
-const totalEarned = referrals.reduce((acc, r) => acc + r.earnedAmount, 0);
-const totalMembers = referrals.length;
+  try {
+    const settings = await Settings.getSingleton();
+    const referrals = await Referral.find({ referrer: req.user._id })
+      .populate("referee", "fullName email");
 
-// Determine level & badge  
-let level = 0, badge = null;  
-if (totalMembers >= 200) { level = 5; badge = "/Assets/orange.jpg"; }  
-else if (totalMembers >= 100) { level = 4; badge = "/Assets/blue.jpg"; }  
-else if (totalMembers >= 50) { level = 3; badge = "/Assets/black.jpg"; }  
-else if (totalMembers >= 20) { level = 2; badge = "/Assets/white.jpg"; }  
-else if (totalMembers >= 10) { level = 1; badge = null; }  
+    const totalEarned  = referrals.reduce((acc, r) => acc + r.earnedAmount, 0);
+    const totalMembers = referrals.length;
 
-res.status(200).json({ totalEarned, totalMembers, level, badge, referrals });
+    const tiers = [...settings.badgeTiers].sort((a, b) => b.minReferrals - a.minReferrals);
+    const earnedTier = tiers.find((t) => totalMembers >= t.minReferrals);
 
-} catch (error) {
-console.error(error);
-res.status(500).json({ message: "Server error" });
-}
+    res.json({
+      totalEarned,
+      totalMembers,
+      level:     earnedTier ? tiers.length - tiers.indexOf(earnedTier) : 0,
+      badge:     earnedTier?.badgeImage || null,
+      badgeName: earnedTier?.name || null,
+      tiers:     settings.badgeTiers,
+      referrals,
+    });
+  } catch (e) {
+    res.status(500).json({ message: e.message });
+  }
 };
