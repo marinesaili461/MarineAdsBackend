@@ -1,13 +1,10 @@
-const router = require("express").Router();
-const { protect } = require("../Middlewares/authMiddleware");
-const role = require("../Middlewares/roleMiddleware");
-const D = require("../Controllers/AdminDisputeController");
+import { Router } from "express";
+import { protect } from "../Middlewares/authMiddleware.js";
+import role from "../Middlewares/roleMiddleware.js";
+import * as D from "../Controllers/AdminDisputeController.js";
 
-router.post(
-  "/campaigns/:id/submissions/:submissionId/dispute",
-  protect,
-  role("admin"),
-  D.reviewDispute
-);
+const router = Router();
 
-module.exports = router;
+router.post("/campaigns/:id/submissions/:submissionId/dispute", protect, role("admin"), D.reviewDispute);
+
+export default router;
