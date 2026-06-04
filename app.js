@@ -1,37 +1,98 @@
-const express = require("express");
-const app = express();
-
-// Middleware
-app.use(express.json());
+import express from "express";
+import dotenv from "dotenv";
+import cors from "cors";
+import helmet from "helmet";
+import morgan from "morgan";
+import rateLimit from "express-rate-limit";
+import cookieParser from "cookie-parser";
 
 // Routes
+import authRoutes from "./routes/AuthRoutes.js";
+import userRoutes from "./routes/UserRoutes.js";
+import walletRoutes from "./routes/WalletRoutes.js";
+import taskRoutes from "./routes/TaskRoutes.js";
+import taskSubmissionRoutes from "./routes/TaskSubmissionRoutes.js";
+import campaignRoutes from "./routes/CampaignRoutes.js";
+import adminRoutes from "./routes/adminRoutes.js";
+import moderatorRoutes from "./routes/ModeratorRoutes.js";
+import rewardCodeRoutes from "./routes/RewardCodeRoutes.js";
+import referralRoutes from "./routes/ReferralRoutes.js";
+import chatRoutes from "./routes/ChatRoutes.js";
+
+dotenv.config();
+
+/* =================================================
+   CORS
+================================================= */
+const ALLOWED_ORIGINS = [
+  "https://marinecash.vercel.app",
+  "http://localhost:5173",
+  "http://localhost:3000",
+];
+
+const corsOptions = {
+  origin: (origin, callback) => {
+    if (!origin) return callback(null, true);
+    if (ALLOWED_ORIGINS.includes(origin)) return callback(null, true);
+    console.log("🚫 Blocked by CORS:", origin);
+    return callback(new Error("Not allowed by CORS"));
+  },
+  credentials: true,
+};
+
+/* =================================================
+   APP
+================================================= */
+const app = express();
+
+app.set("trust proxy", 1);
+
+/* Security */
+app.use(helmet());
+
+/* Rate limit */
+app.use(
+  rateLimit({
+    windowMs: 15 * 60 * 1000,
+    max: 100,
+  })
+);
+
+app.use(cors(corsOptions));
+app.options(/.*/, cors(corsOptions));
+
+/* Body parser */
+app.use(express.json({ limit: "50mb" }));
+app.use(express.urlencoded({ limit: "50mb", extended: true }));
+app.use(morgan("dev"));
+app.use(cookieParser());
+
+/* Health check */
 app.get("/", (req, res) => {
-  res.send("API is running...");
+  res.json({ status: "MarineCash backend running" });
 });
 
-const adminRoutes = require("./routes/adminRoutes");
+/* =================================================
+   ROUTES
+================================================= */
+app.use("/api/auth", authRoutes);
+app.use("/api/users", userRoutes);
+app.use("/api/wallet", walletRoutes);
+app.use("/api/tasks", taskRoutes);
+app.use("/api/task-submissions", taskSubmissionRoutes);
+app.use("/api/campaign", campaignRoutes);
 app.use("/api/admin", adminRoutes);
-const AuthRoutes = require("./routes/AuthRoutes");
-app.use("/api/auth", AuthRoutes);
-const TaskRoutes = require("./routes/TaskRoutes");
-app.use("/api/tasks", TaskRoutes);
-const TaskSubmissionRoutes = require("./routes/TaskSubmissionRoutes");
-app.use("/api/task-submissions", TaskSubmissionRoutes);
-const CampaignRoutes = require("./routes/CampaignRoutes");
-app.use("/api/campaign", CampaignRoutes);
-const UserRoutes = require("./routes/UserRoutes");
-app.use("/api/user", UserRoutes);
-const WalletRoutes = require("./routes/WalletRoutes");
-app.use("/api/wallet", WalletRoutes);
-const ModeratorRoutes = require("./routes/ModeratorRoutes");
-app.use("/api/moderator", ModeratorRoutes);
-const RewardCodeRoutes = require("./routes/RewardCodeRoutes");
-app.use("/api/rewardcode", RewardCodeRoutes);
-const ReferralRoutes = require("./routes/ReferralRoutes");
-app.use("/api/referral", ReferralRoutes);
+app.use("/api/moderator", moderatorRoutes);
+app.use("/api/rewardcode", rewardCodeRoutes);
+app.use("/api/referral", referralRoutes);
+app.use("/api/chat", chatRoutes);
 
-const ChatRoutes = require("./routes/ChatRoutes");
-app.use("/api/chat", ChatRoutes);
+/* =================================================
+   ERROR HANDLER
+================================================= */
+app.use((err, req, res, next) => {
+  console.error(err.stack);
+  res.status(err.status || 500).json({ message: err.message || "Server Error" });
+});
 
-// Export the app last
-module.exports = app;
+export default app;
