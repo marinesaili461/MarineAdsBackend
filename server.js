@@ -15,7 +15,7 @@ mongoose
   .then(() => console.log("✅ MongoDB connected"))
   .catch((err) => console.log("❌ MongoDB error:", err));
 
-const PORT = process.env.PORT || 5000;
+const PORT = process.env.PORT || 10000;
 
 /* ========================================
    🌐 CREATE HTTP SERVER
@@ -30,7 +30,7 @@ export const io = new Server(server, {
     origin: (origin, callback) => {
       if (!origin) return callback(null, true);
       if (
-        origin.includes("marinecash.vercel.app") ||
+        origin.includes("mainecash.vercel.app") ||
         origin.includes("localhost")
       ) {
         return callback(null, true);
