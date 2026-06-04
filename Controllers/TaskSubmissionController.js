@@ -1,8 +1,8 @@
 // Controllers/TaskSubmissionController.js
-const TaskSubmission = require("../Models/TaskSubmission");
+import TaskSubmission from "../models/TaskSubmission.js";
 
 // Create submission (User)
-exports.createSubmission = async (req, res) => {
+export const createSubmission = async (req, res) => {
   try {
     const { task, proof } = req.body;
 
@@ -19,7 +19,7 @@ exports.createSubmission = async (req, res) => {
 };
 
 // Approve submission (Admin)
-exports.approveSubmission = async (req, res) => {
+export const approveSubmission = async (req, res) => {
   try {
     const submission = await TaskSubmission.findById(req.params.id);
     if (!submission) return res.status(404).json({ message: "Submission not found" });
@@ -34,7 +34,7 @@ exports.approveSubmission = async (req, res) => {
 };
 
 // Reject submission (Admin)
-exports.rejectSubmission = async (req, res) => {
+export const rejectSubmission = async (req, res) => {
   try {
     const { reason } = req.body;
     const submission = await TaskSubmission.findById(req.params.id);
