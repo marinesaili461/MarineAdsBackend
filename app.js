@@ -86,6 +86,8 @@ app.use("/api/moderator", moderatorRoutes);
 app.use("/api/rewardcode", rewardCodeRoutes);
 app.use("/api/referral", referralRoutes);
 app.use("/api/chat", chatRoutes);
+// ✅ Daily check-in — user calls this, just needs to be logged in
+router.post("/daily-checkin", protect, A.handleCheckIn);
 
 /* =================================================
    ERROR HANDLER
