@@ -3,6 +3,7 @@ import Campaign from "../models/Campaign.js";
 import Settings from "../models/Settings.js";
 import Wallet from "../models/Wallet.js";
 import WalletTransaction from "../models/WalletTransaction.js";
+import User from "../models/User.js";
 
 // ─── Helpers ──────────────────────────────────────────────────────
 const getSettings = () => Settings.getSingleton();
@@ -292,13 +293,17 @@ export const submitProof = async (req, res) => {
       return res.status(400).json({ message: "You cannot submit to your own campaign" });
 
     const myCount = c.submissions.filter((s) => s.user.toString() === req.user._id.toString()).length;
-    if (myCount >= c.perUserLimit) return res.status(400).json({ message: "You have reached the submission limit for this campaign" });
+    if (myCount >= c.perUserLimit)
+      return res.status(400).json({ message: "You have reached the submission limit for this campaign" });
 
     c.submissions.push({ user: req.user._id, proofText, proofUrl, proofImageUrls, extraFields });
     c.pendingCount += 1;
     await c.save();
+
     res.status(201).json({ message: "Proof submitted. Awaiting review." });
-  } catch (e) { res.status(500).json({ message: e.message }); }
+  } catch (e) {
+    res.status(500).json({ message: e.message });
+  }
 };
 
 // ─── Shared: Approve a submission (poster or admin) ───────────────
@@ -335,6 +340,7 @@ const approveSubmission = async (campaign, sub, reviewerId, session) => {
 };
 
 // ─── User (poster): Review a submission ───────────────────────────
+
 export const reviewSubmissionByPoster = async (req, res) => {
   const session = await mongoose.startSession();
   session.startTransaction();
@@ -344,7 +350,7 @@ export const reviewSubmissionByPoster = async (req, res) => {
 
     if (!["approve", "reject"].includes(action))
       throw new Error("action must be 'approve' or 'reject'");
-    if (action === "reject" && !rejectionReason)
+    if (action === "reject" && !rejectionReason?.trim())
       throw new Error("rejectionReason is required when rejecting");
 
     const c = await Campaign.findById(id).session(session);
@@ -374,9 +380,10 @@ export const reviewSubmissionByPoster = async (req, res) => {
   } catch (e) {
     await session.abortTransaction();
     res.status(400).json({ message: e.message });
-  } finally { session.endSession(); }
+  } finally {
+    session.endSession();
+  }
 };
-
 // ─── Admin: List campaigns by status ──────────────────────────────
 export const adminListCampaigns = async (req, res) => {
   try {
@@ -473,7 +480,7 @@ export const adminReviewSubmission = async (req, res) => {
 
     if (!["approve", "reject"].includes(action))
       throw new Error("action must be 'approve' or 'reject'");
-    if (action === "reject" && !rejectionReason)
+    if (action === "reject" && !rejectionReason?.trim())
       throw new Error("rejectionReason is required when rejecting");
 
     const c = await Campaign.findById(id).session(session);
@@ -502,9 +509,10 @@ export const adminReviewSubmission = async (req, res) => {
   } catch (e) {
     await session.abortTransaction();
     res.status(400).json({ message: e.message });
-  } finally { session.endSession(); }
+  } finally {
+    session.endSession();
+  }
 };
-
 // ─── Admin: Get campaign with all submissions ──────────────────────
 export const adminGetCampaign = async (req, res) => {
   try {
