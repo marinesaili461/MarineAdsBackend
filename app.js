@@ -5,6 +5,8 @@ import helmet from "helmet";
 import morgan from "morgan";
 import rateLimit from "express-rate-limit";
 import cookieParser from "cookie-parser";
+import path from "path";
+import { fileURLToPath } from "url";
 
 // Routes
 import authRoutes from "./routes/AuthRoutes.js";
@@ -21,6 +23,9 @@ import chatRoutes from "./routes/ChatRoutes.js";
 import disputeRoutes from "./routes/AdminDisputeRoutes.js";
 
 dotenv.config();
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 const ALLOWED_ORIGINS = [
   "https://mainecash.vercel.app",
@@ -42,14 +47,19 @@ const app = express();
 
 app.set("trust proxy", 1);
 
-app.use(helmet());
+app.use(helmet({
+  crossOriginResourcePolicy: { policy: "cross-origin" }, // allow images to load from frontend
+}));
 app.use(rateLimit({ windowMs: 15 * 60 * 1000, max: 100 }));
 app.use(cors(corsOptions));
 app.options(/.*/, cors(corsOptions));
-app.use(express.json({ limit: "50mb" }));
-app.use(express.urlencoded({ limit: "50mb", extended: true }));
+app.use(express.json({ limit: "10mb" })); // reduced — no more base64 image blobs
+app.use(express.urlencoded({ limit: "10mb", extended: true }));
 app.use(morgan("dev"));
 app.use(cookieParser());
+
+// Serve uploaded campaign images statically
+app.use("/uploads", express.static(path.join(__dirname, "uploads")));
 
 app.get("/", (req, res) => {
   res.json({ status: "MarineCash backend running" });
