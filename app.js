@@ -18,6 +18,7 @@ import moderatorRoutes from "./routes/ModeratorRoutes.js";
 import rewardCodeRoutes from "./routes/RewardCodeRoutes.js";
 import referralRoutes from "./routes/ReferralRoutes.js";
 import chatRoutes from "./routes/ChatRoutes.js";
+import disputeRoutes from "./routes/AdminDisputeRoutes.js";
 
 dotenv.config();
 
@@ -65,6 +66,7 @@ app.use("/api/moderator", moderatorRoutes);
 app.use("/api/rewardcode", rewardCodeRoutes);
 app.use("/api/referral", referralRoutes);
 app.use("/api/chat", chatRoutes);
+app.use("/api/admin/disputes", disputeRoutes);
 
 app.use((err, req, res, next) => {
   console.error(err.stack);
