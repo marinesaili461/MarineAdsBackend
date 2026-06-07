@@ -1,13 +1,37 @@
 import mongoose from "mongoose";
+import path from "path";
+import fs from "fs";
+import { fileURLToPath } from "url";
+import multer from "multer";
 import Campaign from "../models/Campaign.js";
 import Settings from "../models/Settings.js";
 import Wallet from "../models/Wallet.js";
 import WalletTransaction from "../models/WalletTransaction.js";
 import User from "../models/User.js";
-import multer from "multer";
-import path from "path";
-import fs from "fs";
-import { fileURLToPath } from "url";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+// ─── Multer setup for campaign image uploads ───────────────────────
+const uploadDir = path.join(__dirname, "../uploads/campaign-images");
+if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
+
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => cb(null, uploadDir),
+  filename: (req, file, cb) => {
+    const ext = path.extname(file.originalname);
+    cb(null, `${Date.now()}-${Math.random().toString(36).slice(2)}${ext}`);
+  },
+});
+
+export const multerUpload = multer({
+  storage,
+  limits: { fileSize: 5 * 1024 * 1024 }, // 5MB per file
+  fileFilter: (req, file, cb) => {
+    if (!file.mimetype.startsWith("image/")) return cb(new Error("Images only"));
+    cb(null, true);
+  },
+});
 
 // ─── Helpers ──────────────────────────────────────────────────────
 const getSettings = () => Settings.getSingleton();
@@ -296,9 +320,11 @@ export const submitProof = async (req, res) => {
     if (c.poster.toString() === req.user._id.toString())
       return res.status(400).json({ message: "You cannot submit to your own campaign" });
 
+    // Only count non-rejected submissions against the per-user limit
+    // so users can retry after a rejection
     const myCount = c.submissions.filter(
-  (s) => s.user.toString() === req.user._id.toString() && s.status !== "rejected"
-).length;
+      (s) => s.user.toString() === req.user._id.toString() && s.status !== "rejected"
+    ).length;
     if (myCount >= c.perUserLimit)
       return res.status(400).json({ message: "You have reached the submission limit for this campaign" });
 
@@ -346,7 +372,6 @@ const approveSubmission = async (campaign, sub, reviewerId, session) => {
 };
 
 // ─── User (poster): Review a submission ───────────────────────────
-
 export const reviewSubmissionByPoster = async (req, res) => {
   const session = await mongoose.startSession();
   session.startTransaction();
@@ -390,6 +415,7 @@ export const reviewSubmissionByPoster = async (req, res) => {
     session.endSession();
   }
 };
+
 // ─── Admin: List campaigns by status ──────────────────────────────
 export const adminListCampaigns = async (req, res) => {
   try {
@@ -411,7 +437,7 @@ export const adminListCampaigns = async (req, res) => {
   } catch (e) { res.status(500).json({ message: e.message }); }
 };
 
-// ─── Admin: Approve campaign (moves to draft, poster must fund) ────
+// ─── Admin: Approve campaign ───────────────────────────────────────
 export const adminApproveCampaign = async (req, res) => {
   try {
     const c = await Campaign.findById(req.params.id);
@@ -476,6 +502,7 @@ export const adminRejectCampaign = async (req, res) => {
     session.endSession();
   }
 };
+
 // ─── Admin: Review a submission ────────────────────────────────────
 export const adminReviewSubmission = async (req, res) => {
   const session = await mongoose.startSession();
@@ -519,6 +546,7 @@ export const adminReviewSubmission = async (req, res) => {
     session.endSession();
   }
 };
+
 // ─── Admin: Get campaign with all submissions ──────────────────────
 export const adminGetCampaign = async (req, res) => {
   try {
@@ -565,28 +593,7 @@ export const autoApproveOverdue = async () => {
   } finally { session.endSession(); }
 };
 
-// ─── Image upload: base64 → store (swap for Cloudinary if needed) ─
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const uploadDir = path.join(__dirname, "../uploads/campaign-images");
-if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
-
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => cb(null, uploadDir),
-  filename: (req, file, cb) => {
-    const ext = path.extname(file.originalname);
-    cb(null, `${Date.now()}-${Math.random().toString(36).slice(2)}${ext}`);
-  },
-});
-
-export const multerUpload = multer({
-  storage,
-  limits: { fileSize: 5 * 1024 * 1024 }, // 5MB
-  fileFilter: (req, file, cb) => {
-    if (!file.mimetype.startsWith("image/")) return cb(new Error("Images only"));
-    cb(null, true);
-  },
-});
-
+// ─── Image upload: multipart/form-data → disk file ────────────────
 export const uploadCampaignImage = async (req, res) => {
   try {
     if (!req.file) return res.status(400).json({ message: "No file uploaded" });
