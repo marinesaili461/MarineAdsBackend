@@ -23,6 +23,8 @@ const creditUser = async (userId, amount, type, meta, session) => {
 
 // ─── User: Create campaign (goes to pending_approval) ─────────────
 export const createCampaign = async (req, res) => {
+  const session = await mongoose.startSession();
+  session.startTransaction();
   try {
     const {
       title, description, category, payPerTask, maxEarners,
@@ -35,33 +37,64 @@ export const createCampaign = async (req, res) => {
     const settings = await getSettings();
     const feePct = settings.campaignFeePct ?? settings.platformFeePct ?? 0;
 
-    // Min pay check — admin can set per category; if blank, user can enter anything
     const catMin = settings.categoryMinimums?.get?.(category) ?? settings.minPayGlobal ?? 0;
     if (catMin > 0 && payPerTask < catMin)
       return res.status(400).json({ message: `Minimum pay for "${category}" is $${Number(catMin).toFixed(3)}` });
 
-    const payoutBudget = parseFloat((payPerTask * maxEarners).toFixed(4));
-    const feeAmount = parseFloat((payoutBudget * feePct / 100).toFixed(4));
+    const payoutBudget   = parseFloat((payPerTask * maxEarners).toFixed(4));
+    const feeAmount      = parseFloat((payoutBudget * feePct / 100).toFixed(4));
     const escrowRequired = parseFloat((payoutBudget + feeAmount).toFixed(4));
+
+    // ── Deduct wallet immediately ──────────────────────────────────
+    const wallet = await Wallet.findOne({ user: req.user._id }).session(session);
+    if (!wallet) throw new Error("Wallet not found");
+    if (wallet.balance < escrowRequired)
+      throw new Error(`Insufficient balance. You need $${escrowRequired.toFixed(4)} but have $${wallet.balance.toFixed(4)}.`);
+
+    wallet.balance -= escrowRequired;
+    wallet.locked   = (wallet.locked || 0) + escrowRequired;
+    await wallet.save({ session });
+
+    await WalletTransaction.create(
+      [{ user: req.user._id, type: "escrow_lock", amount: escrowRequired,
+         meta: { reason: "campaign_pending_approval" } }],
+      { session }
+    );
 
     const autoApproveDays = settings.autoApproveDays ?? 3;
 
-    const campaign = await Campaign.create({
+    const campaign = await Campaign.create([{
       title, description, category,
       payPerTask, platformFeePctAtCreate: feePct,
       maxEarners, perUserLimit, instructions, targetUrl,
       exampleImageUrls,
       poster: req.user._id,
       payoutBudget, feeAmount, escrowRequired,
+      escrowLocked: escrowRequired,
       status: "pending_approval",
       approvalsCloseAt: new Date(Date.now() + autoApproveDays * 24 * 60 * 60 * 1000),
       expiresAt: expiresAt || undefined,
-    });
+    }], { session });
 
-    res.status(201).json({ message: "Campaign submitted for admin review.", campaign });
+    // patch the transaction meta with the campaign id now that we have it
+    await WalletTransaction.findOneAndUpdate(
+      { user: req.user._id, type: "escrow_lock", "meta.reason": "campaign_pending_approval",
+        createdAt: { $gte: new Date(Date.now() - 5000) } },
+      { $set: { "meta.campaignId": campaign[0]._id } },
+      { session }
+    );
+
+    await session.commitTransaction();
+    res.status(201).json({
+      message: "Campaign submitted for admin review. Funds have been held from your wallet.",
+      campaign: campaign[0],
+    });
   } catch (e) {
+    await session.abortTransaction();
     console.error("createCampaign:", e);
-    res.status(500).json({ message: e.message });
+    res.status(400).json({ message: e.message });
+  } finally {
+    session.endSession();
   }
 };
 
@@ -382,22 +415,50 @@ export const adminApproveCampaign = async (req, res) => {
 
 // ─── Admin: Reject campaign ────────────────────────────────────────
 export const adminRejectCampaign = async (req, res) => {
+  const session = await mongoose.startSession();
+  session.startTransaction();
   try {
     const { reason } = req.body;
     if (!reason) return res.status(400).json({ message: "Rejection reason is required" });
-    const c = await Campaign.findById(req.params.id);
-    if (!c) return res.status(404).json({ message: "Campaign not found" });
-    if (c.status !== "pending_approval")
-      return res.status(400).json({ message: "Campaign is not awaiting approval" });
-    c.status = "rejected";
-    c.adminReviewedBy = req.user._id;
-    c.adminReviewedAt = new Date();
-    c.adminRejectionReason = reason;
-    await c.save();
-    res.json({ message: "Campaign rejected.", campaign: c });
-  } catch (e) { res.status(500).json({ message: e.message }); }
-};
 
+    const c = await Campaign.findById(req.params.id).session(session);
+    if (!c) throw new Error("Campaign not found");
+    if (c.status !== "pending_approval")
+      throw new Error("Campaign is not awaiting approval");
+
+    // ── Refund locked escrow to poster ────────────────────────────
+    if (c.escrowLocked > 0) {
+      const wallet = await Wallet.findOne({ user: c.poster }).session(session);
+      if (!wallet) throw new Error("Poster wallet not found");
+      wallet.locked  = Math.max(0, (wallet.locked || 0) - c.escrowLocked);
+      wallet.balance += c.escrowLocked;
+      await wallet.save({ session });
+
+      await WalletTransaction.create(
+        [{ user: c.poster, type: "escrow_release", amount: c.escrowLocked,
+           meta: { campaignId: c._id, reason: "admin_rejected" } }],
+        { session }
+      );
+
+      c.refundedAmount += c.escrowLocked;
+      c.escrowLocked    = 0;
+    }
+
+    c.status               = "rejected";
+    c.adminReviewedBy      = req.user._id;
+    c.adminReviewedAt      = new Date();
+    c.adminRejectionReason = reason;
+    await c.save({ session });
+
+    await session.commitTransaction();
+    res.json({ message: "Campaign rejected. Funds refunded to poster.", campaign: c });
+  } catch (e) {
+    await session.abortTransaction();
+    res.status(400).json({ message: e.message });
+  } finally {
+    session.endSession();
+  }
+};
 // ─── Admin: Review a submission ────────────────────────────────────
 export const adminReviewSubmission = async (req, res) => {
   const session = await mongoose.startSession();
