@@ -23,6 +23,7 @@ const pollSchema = new mongoose.Schema(
 const settingsSchema = new mongoose.Schema(
   {
     platformFeePct: { type: Number },
+    campaignFeePct: { type: Number },         // ← fee cut on campaign funding
     offerwallFeePct: { type: Number },
     withdrawalFeePct: { type: Number },
     minWithdrawal: { type: Number },
@@ -34,7 +35,7 @@ const settingsSchema = new mongoose.Schema(
     referralSystemCutPct: { type: Number },
     referralTasksToActivate: { type: Number },
     badgeTiers: { type: [badgeTierSchema], default: [] },
-    autoApproveDays: { type: Number },
+    autoApproveDays: { type: Number, default: 3 },
     minPayGlobal: { type: Number },
     categoryMinimums: { type: Map, of: Number, default: {} },
     announcements: { type: [announcementSchema], default: [] },
