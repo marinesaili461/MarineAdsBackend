@@ -603,3 +603,76 @@ export const uploadCampaignImage = async (req, res) => {
     res.status(500).json({ message: e.message });
   }
 };
+// ─── Admin: Count / list all pending submissions across all campaigns ──
+export const adminGetPendingSubmissions = async (req, res) => {
+  try {
+    const { page = 1, limit = 20 } = req.query;
+    const pageNum = Number(page);
+    const limitNum = Number(limit);
+
+    // Find all active campaigns that have at least one pending submission
+    const campaigns = await Campaign.find({
+      "submissions.status": "pending",
+    })
+      .populate("poster", "fullName email")
+      .populate("submissions.user", "fullName email");
+
+    // Flatten all pending submissions with their campaign info
+    const allPending = [];
+    for (const c of campaigns) {
+      for (const sub of c.submissions) {
+        if (sub.status === "pending") {
+          allPending.push({
+            submissionId: sub._id,
+            campaignId: c._id,
+            campaignTitle: c.title,
+            campaignCategory: c.category,
+            poster: c.poster,
+            user: sub.user,
+            proofText: sub.proofText,
+            proofUrl: sub.proofUrl,
+            proofImageUrls: sub.proofImageUrls,
+            extraFields: sub.extraFields,
+            submittedAt: sub.submittedAt,
+            payPerTask: c.payPerTask,
+          });
+        }
+      }
+    }
+
+    // Sort newest first
+    allPending.sort((a, b) => new Date(b.submittedAt) - new Date(a.submittedAt));
+
+    const total = allPending.length;
+    const paginated = allPending.slice((pageNum - 1) * limitNum, pageNum * limitNum);
+
+    res.json({ items: paginated, total, page: pageNum, pages: Math.ceil(total / limitNum) });
+  } catch (e) {
+    res.status(500).json({ message: e.message });
+  }
+};
+
+// ─── Campaign owner: Count pending submissions on their own campaigns ──
+export const myPendingSubmissionsCount = async (req, res) => {
+  try {
+    const campaigns = await Campaign.find({
+      poster: req.user._id,
+      "submissions.status": "pending",
+    }).select("submissions title");
+
+    let count = 0;
+    const items = [];
+    for (const c of campaigns) {
+      for (const sub of c.submissions) {
+        if (sub.status === "pending") {
+          count++;
+          items.push({ campaignId: c._id, campaignTitle: c.title, submissionId: sub._id });
+        }
+      }
+    }
+
+    res.json({ count, items });
+  } catch (e) {
+    res.status(500).json({ message: e.message });
+  }
+};
