@@ -17,23 +17,25 @@ import {
   adminRejectCampaign,
   adminReviewSubmission,
   adminGetCampaign,
+  uploadCampaignImage,
 } from "../Controllers/CampaignController.js";
 
 const router = Router();
 
-// ── Public / User ────────────────────────────────────────────────
+// ── Public / User ─────────────────────────────────────────────────
 router.get("/", listActive);
 router.get("/mine", protect, getMyCampaigns);
 router.get("/:id", protect, getCampaign);
 router.post("/", protect, createCampaign);
-router.put("/:id/fund-activate", protect, fundAndActivate);
+router.post("/upload-image", protect, uploadCampaignImage);
+router.put("/:id/fund-activate", protect, fundAndActivate); // kept for exhausted top-ups
 router.put("/:id/pause", protect, pauseCampaign);
 router.put("/:id/resume", protect, resumeCampaign);
 router.put("/:id/stop", protect, stopCampaign);
 router.post("/:id/submit", protect, submitProof);
 router.put("/:id/submissions/:submissionId/review", protect, reviewSubmissionByPoster);
 
-// ── Admin ────────────────────────────────────────────────────────
+// ── Admin ──────────────────────────────────────────────────────────
 router.get("/admin/all", protect, restrictTo("admin", "superadmin"), adminListCampaigns);
 router.get("/admin/:id", protect, restrictTo("admin", "superadmin"), adminGetCampaign);
 router.put("/admin/:id/approve", protect, restrictTo("admin", "superadmin"), adminApproveCampaign);
