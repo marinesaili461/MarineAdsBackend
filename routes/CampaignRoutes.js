@@ -19,12 +19,15 @@ import {
   adminGetCampaign,
   uploadCampaignImage,
   multerUpload,
+  adminGetPendingSubmissions,
+  myPendingSubmissionsCount,
 } from "../Controllers/CampaignController.js";
 
 const router = Router();
 
 // ── Admin (must be BEFORE /:id) ──────────────────────────
 router.get("/admin/all", protect, restrictTo("admin", "superadmin"), adminListCampaigns);
+router.get("/admin/pending-submissions", protect, restrictTo("admin", "superadmin"), adminGetPendingSubmissions);
 router.get("/admin/:id", protect, restrictTo("admin", "superadmin"), adminGetCampaign);
 router.put("/admin/:id/approve", protect, restrictTo("admin", "superadmin"), adminApproveCampaign);
 router.put("/admin/:id/reject", protect, restrictTo("admin", "superadmin"), adminRejectCampaign);
@@ -33,6 +36,7 @@ router.put("/admin/:id/submissions/:submissionId/review", protect, restrictTo("a
 // ── Public / User ─────────────────────────────────────────
 router.get("/", listActive);
 router.get("/mine", protect, getMyCampaigns);
+router.get("/mine/pending-submissions-count", protect, myPendingSubmissionsCount);
 router.get("/:id", protect, getCampaign);
 router.post("/", protect, createCampaign);
 router.post("/upload-image", protect, multerUpload.single("image"), uploadCampaignImage);
