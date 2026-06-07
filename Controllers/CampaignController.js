@@ -405,12 +405,16 @@ export const adminApproveCampaign = async (req, res) => {
     if (!c) return res.status(404).json({ message: "Campaign not found" });
     if (c.status !== "pending_approval")
       return res.status(400).json({ message: "Campaign is not awaiting approval" });
-    c.status = "draft";
+
+    c.status          = "active";
     c.adminReviewedBy = req.user._id;
     c.adminReviewedAt = new Date();
     await c.save();
-    res.json({ message: "Campaign approved. Owner can now fund it.", campaign: c });
-  } catch (e) { res.status(500).json({ message: e.message }); }
+
+    res.json({ message: "Campaign approved and is now live.", campaign: c });
+  } catch (e) {
+    res.status(500).json({ message: e.message });
+  }
 };
 
 // ─── Admin: Reject campaign ────────────────────────────────────────
