@@ -3,6 +3,8 @@ import Wallet from "../models/Wallet.js";
 import WalletTransaction from "../models/WalletTransaction.js";
 import Campaign from "../models/Campaign.js";
 import Settings from "../models/Settings.js";
+import { getUserLocalDate } from "../Utils/timeUtils.js";
+import { maybeResetEarnedToday } from "../Utils/resetEarnedToday.js";
 
 export const getAllUsers = async (req, res) => {
   try {
@@ -169,7 +171,6 @@ export const deletePoll = async (req, res) => {
   } catch (e) { res.status(500).json({ message: e.message }); }
 };
 
-
 export const handleCheckIn = async (req, res) => {
   try {
     const settings = await Settings.getSingleton();
@@ -180,23 +181,21 @@ export const handleCheckIn = async (req, res) => {
       return res.status(503).json({ message: "Check-in reward not configured yet." });
 
     const user = await User.findById(req.user._id);
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
+    const timezone = user.timezone || "UTC";
+    const todayStr = getUserLocalDate(timezone);
 
-    if (user.lastCheckIn && new Date(user.lastCheckIn) >= today)
+    // Lazy reset earnedToday if user's local day rolled over
+    const wallet = await maybeResetEarnedToday(user._id, timezone);
+    if (!wallet) return res.status(404).json({ message: "Wallet not found" });
+
+    // Check if already claimed today (using local date string)
+    if (user.lastCheckInDate === todayStr)
       return res.status(400).json({ message: "Already claimed today. Come back tomorrow!" });
 
-    // ✅ Safe wallet upsert — won't crash on new users
-    let wallet = await Wallet.findOne({ user: user._id });
-    if (!wallet) {
-      wallet = await Wallet.create({ user: user._id, balance: 0, totalEarned: 0, earnedToday: 0 });
-    }
-
     const amount = settings.dailyCheckInAmount;
-    wallet.balance += amount;
-    wallet.earnedToday = (wallet.earnedToday || 0) + amount;
-    wallet.totalEarned = (wallet.totalEarned || 0) + amount; // ✅ was missing
-
+    wallet.balance      += amount;
+    wallet.earnedToday  += amount;
+    wallet.totalEarned  = (wallet.totalEarned || 0) + amount;
     await wallet.save();
 
     await WalletTransaction.create({
@@ -208,19 +207,17 @@ export const handleCheckIn = async (req, res) => {
       status: "completed",
     });
 
-    user.lastCheckIn = new Date();
+    user.lastCheckIn     = new Date();
+    user.lastCheckInDate = todayStr;
     await user.save();
 
-    res.json({
-      message: "Claimed!",
-      amount,
-      balance: wallet.balance,
-    });
+    res.json({ message: "Claimed!", amount, balance: wallet.balance });
   } catch (e) {
     console.error("handleCheckIn error:", e);
     res.status(500).json({ message: e.message });
   }
 };
+
 
 // GET /admin/users/:id
 export const getUserById = async (req, res) => {
