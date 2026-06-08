@@ -13,7 +13,10 @@ const generateToken = (id) => jwt.sign({ id }, process.env.JWT_SECRET, { expires
 
 export const register = async (req, res) => {
   try {
-    const { fullName, email, country, phone, password, confirmPassword, agreedToTerms, referralCode } = req.body;
+    const {
+      fullName, email, gender, phone, phoneCountry,
+      password, confirmPassword, agreedToTerms, referralCode,
+    } = req.body;
 
     if (password !== confirmPassword)
       return res.status(400).json({ message: "Passwords do not match" });
@@ -24,10 +27,42 @@ export const register = async (req, res) => {
     if (await User.findOne({ phone }))
       return res.status(400).json({ message: "Phone already registered" });
 
+    // ── IP country detection ──────────────────────────────────────
+    let ipCountry = "Unknown";
+    try {
+      const ip =
+        (req.headers["x-forwarded-for"] || "").split(",")[0].trim() ||
+        req.socket?.remoteAddress ||
+        "";
+      // Skip private/loopback IPs (local dev)
+      const isPrivate = /^(::1|127\.|10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)/.test(ip);
+      if (!isPrivate && ip) {
+        const geoRes = await fetch(`http://ip-api.com/json/${ip}?fields=country`);
+        const geoData = await geoRes.json();
+        if (geoData?.country) ipCountry = geoData.country;
+      }
+    } catch {
+      // geo lookup failed — non-blocking
+    }
+
+    // ── Soft flag: compare IP country vs phone dial code country ──
+    const countryMismatch =
+      phoneCountry &&
+      ipCountry !== "Unknown" &&
+      phoneCountry.toLowerCase() !== ipCountry.toLowerCase();
+
     const hashedPassword = await bcrypt.hash(password, 10);
     const newUser = await User.create({
-      fullName, email, country, phone,
-      password: hashedPassword, agreedToTerms, isVerified: false,
+      fullName,
+      email,
+      gender,
+      phone,
+      phoneCountry: phoneCountry || null,
+      country: ipCountry,
+      countryMismatch: !!countryMismatch,
+      password: hashedPassword,
+      agreedToTerms,
+      isVerified: false,
     });
 
     await Wallet.create({ user: newUser._id, balance: 0 });
