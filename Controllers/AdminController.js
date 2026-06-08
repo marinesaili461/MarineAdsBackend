@@ -3,7 +3,6 @@ import Wallet from "../models/Wallet.js";
 import WalletTransaction from "../models/WalletTransaction.js";
 import Campaign from "../models/Campaign.js";
 import Settings from "../models/Settings.js";
-import WalletTransaction from "../models/WalletTransaction.js";
 
 export const getAllUsers = async (req, res) => {
   try {
