@@ -7,9 +7,10 @@ import WalletTransaction from "../models/WalletTransaction.js";
 
 export const getAllUsers = async (req, res) => {
   try {
-    const { search, role, page = 1, limit = 20 } = req.query;
+    const { search, role, countryMismatch, page = 1, limit = 20 } = req.query;
     const filter = {};
     if (role) filter.role = role;
+    if (countryMismatch === "true") filter.countryMismatch = true;
     if (search) filter.$or = [
       { fullName: { $regex: search, $options: "i" } },
       { email: { $regex: search, $options: "i" } },
@@ -33,7 +34,8 @@ export const blockUser = async (req, res) => {
 
 export const changeRole = async (req, res) => {
   try {
-    const { userId, role } = req.body;
+    const { role } = req.body;
+    const userId = req.params.id || req.body.userId;
     if (!["user", "moderator", "admin", "superadmin"].includes(role))
       return res.status(400).json({ message: "Invalid role" });
     const user = await User.findByIdAndUpdate(userId, { role }, { new: true }).select("-password");
@@ -41,6 +43,7 @@ export const changeRole = async (req, res) => {
     res.json({ message: "Role updated", user });
   } catch (e) { res.status(500).json({ message: e.message }); }
 };
+
 
 export const assignBadge = async (req, res) => {
   try {
