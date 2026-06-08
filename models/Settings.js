@@ -42,6 +42,7 @@ const settingsSchema = new mongoose.Schema(
     polls: { type: [pollSchema], default: [] },
     maintenanceMode: { type: Boolean },
     maintenanceMessage: { type: String },
+    showTopEarners: { type: Boolean, default: true },
   },
   { timestamps: true }
 );
