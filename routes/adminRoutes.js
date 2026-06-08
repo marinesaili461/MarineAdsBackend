@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { protect } from "../Middlewares/authMiddleware.js";
 import restrictTo from "../Middlewares/roleMiddleware.js";
+import User from "../models/User.js";
 import {
   getAllUsers,
   getUserById,
@@ -65,7 +66,21 @@ router.put("/wallet/process-withdrawal",  protect, restrictTo("admin", "superadm
 // ── Daily check-in ───────────────────────────────────────────────
 router.post("/daily-checkin", protect, handleCheckIn);
 
-//Top Earners
+router.get("/checkin-status", protect, async (req, res) => {
+  try {
+    const user = await User.findById(req.user._id).select("lastCheckInDate timezone");
+    const { getUserLocalDate } = await import("../Utils/timeUtils.js");
+    const todayStr = getUserLocalDate(user.timezone || "UTC");
+
+    res.json({
+      claimed: user.lastCheckInDate === todayStr,
+    });
+  } catch (e) {
+    res.status(500).json({ message: e.message });
+  }
+});
+
+// Top Earners
 router.get("/top-earners", protect, getTopEarners);
 
 export default router;
