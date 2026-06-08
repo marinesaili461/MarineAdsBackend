@@ -26,6 +26,7 @@ const userSchema = new mongoose.Schema(
     lastCheckIn:       { type: Date },
     lastCheckInDate:   { type: String, default: null }, // "2026-06-08" in user's local tz
     hiddenSections:    { type: [String], default: [] },
+    photo: { type: String, default: null },
   },
   { timestamps: true }
 );
