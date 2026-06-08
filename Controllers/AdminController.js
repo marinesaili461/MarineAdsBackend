@@ -3,6 +3,7 @@ import Wallet from "../models/Wallet.js";
 import WalletTransaction from "../models/WalletTransaction.js";
 import Campaign from "../models/Campaign.js";
 import Settings from "../models/Settings.js";
+import WalletTransaction from "../models/WalletTransaction.js";
 
 export const getAllUsers = async (req, res) => {
   try {
@@ -217,4 +218,81 @@ export const handleCheckIn = async (req, res) => {
     console.error("handleCheckIn error:", e);
     res.status(500).json({ message: e.message });
   }
+};
+
+// GET /admin/users/:id
+export const getUserById = async (req, res) => {
+  try {
+    const user = await User.findById(req.params.id).select("-password").lean();
+    if (!user) return res.status(404).json({ message: "User not found" });
+    const wallet = await Wallet.findOne({ user: user._id }).lean();
+    res.json({
+      user: {
+        ...user,
+        balance: wallet?.balance || 0,
+        earnedToday: wallet?.earnedToday || 0,
+        totalWithdrawn: wallet?.totalWithdrawn || 0,
+      },
+    });
+  } catch (e) { res.status(500).json({ message: e.message }); }
+};
+
+// GET /admin/users/:id/transactions
+export const getUserTransactions = async (req, res) => {
+  try {
+    const { page = 1, limit = 10 } = req.query;
+    const filter = { user: req.params.id };
+    const [transactions, total] = await Promise.all([
+      WalletTransaction.find(filter)
+        .sort({ createdAt: -1 })
+        .skip((page - 1) * limit)
+        .limit(Number(limit))
+        .lean(),
+      WalletTransaction.countDocuments(filter),
+    ]);
+    res.json({
+      transactions,
+      total,
+      page: +page,
+      pages: Math.ceil(total / limit),
+    });
+  } catch (e) { res.status(500).json({ message: e.message }); }
+};
+
+// PUT /admin/users/:id/balance
+export const setUserBalance = async (req, res) => {
+  try {
+    const { balance } = req.body;
+    if (balance == null || isNaN(balance))
+      return res.status(400).json({ message: "Invalid balance" });
+    const wallet = await Wallet.findOne({ user: req.params.id });
+    if (!wallet) return res.status(404).json({ message: "Wallet not found" });
+    const diff = Number(balance) - wallet.balance;
+    wallet.balance = Number(balance);
+    await wallet.save();
+    await WalletTransaction.create({
+      user: req.params.id,
+      type: "admin_adjustment",
+      amount: diff,
+      fee: 0,
+      netAmount: diff,
+      status: "completed",
+      note: `Admin balance adjustment by ${req.user.email}`,
+    });
+    res.json({ message: "Balance updated", balance: wallet.balance });
+  } catch (e) { res.status(500).json({ message: e.message }); }
+};
+
+// DELETE /admin/users/:id
+export const deleteUser = async (req, res) => {
+  try {
+    const user = await User.findById(req.params.id);
+    if (!user) return res.status(404).json({ message: "User not found" });
+    await Promise.all([
+      User.deleteOne({ _id: req.params.id }),
+      Wallet.deleteOne({ user: req.params.id }),
+      WalletTransaction.deleteMany({ user: req.params.id }),
+    ]);
+    res.json({ message: "User deleted" });
+  } catch (e) { res.status(500).json({ message: e.message }); }
 };
