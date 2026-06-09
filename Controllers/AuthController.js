@@ -315,7 +315,9 @@ export const resetPassword = async (req, res) => {
 
 export const getProfile = async (req, res) => {
   try {
-    const user = await User.findById(req.user._id).select("-password");
+    const user = await User.findById(req.user._id)
+      .select("-password");
+      .populate("badge", "name imageUrl hidden");
     if (!user) return res.status(404).json({ message: "User not found" });
     const wallet = await Wallet.findOne({ user: user._id });
     res.json({
