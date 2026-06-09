@@ -219,7 +219,7 @@ export const resendVerification = async (req, res) => {
 export const login = async (req, res) => {
   try {
     const { email, password } = req.body;
-    const user = await User.findOne({ email });
+    const user = await User.findOne({ email }).populate("badge", "name imageUrl hidden");
     if (!user) return res.status(400).json({ message: "Invalid email or password" });
     if (user.isBlocked) return res.status(403).json({ message: "Your account has been suspended." });
     if (!user.isVerified) return res.status(400).json({ message: "Please verify your email first" });
@@ -316,7 +316,7 @@ export const resetPassword = async (req, res) => {
 export const getProfile = async (req, res) => {
   try {
     const user = await User.findById(req.user._id)
-      .select("-password");
+      .select("-password")
       .populate("badge", "name imageUrl hidden");
     if (!user) return res.status(404).json({ message: "User not found" });
     const wallet = await Wallet.findOne({ user: user._id });
