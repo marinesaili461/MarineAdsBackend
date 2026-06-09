@@ -62,7 +62,7 @@ function populateMessage(query) {
   return query
     .populate({
       path: "sender",
-      select: "fullName badge referralLevel role",
+      select: "fullName badge referralLevel role photo",
       populate: { path: "badge", select: "name imageUrl hidden" },
     })
     .populate("reactions.user", "fullName")
