@@ -301,12 +301,11 @@ export const getTopEarners = async (req, res) => {
   try {
     const settings = await Settings.getSingleton();
 
-    // Admin can always see; regular users respect the toggle
     const isAdmin = ["admin", "superadmin"].includes(req.user?.role);
     if (!isAdmin && !settings.showTopEarners)
       return res.json({ visible: false, earners: [] });
 
-    const since = new Date(Date.now() - 24 * 60 * 60 * 1000); // rolling 24h
+    const since = new Date(Date.now() - 24 * 60 * 60 * 1000);
 
     const top = await WalletTransaction.aggregate([
       {
@@ -328,13 +327,28 @@ export const getTopEarners = async (req, res) => {
         },
       },
       { $unwind: "$user" },
+      // ── NEW: join badges collection ─────────────────────────────
+      {
+        $lookup: {
+          from: "badges",
+          localField: "user.badge",
+          foreignField: "_id",
+          as: "badgeData",
+        },
+      },
       {
         $project: {
           firstName:   { $arrayElemAt: [{ $split: ["$user.fullName", " "] }, 0] },
           country:     "$user.country",
           phoneCountry:"$user.phoneCountry",
-          badge:       "$user.badge",
           totalEarned: 1,
+          badge: {
+            $cond: {
+              if: { $gt: [{ $size: "$badgeData" }, 0] },
+              then: { $arrayElemAt: ["$badgeData", 0] },
+              else: null,
+            },
+          },
         },
       },
     ]);
