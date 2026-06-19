@@ -12,7 +12,7 @@ import walletRoutes from "./routes/WalletRoutes.js";
 dotenv.config();
 
 const ALLOWED_ORIGINS = [
-  "https://mar1nepanel.vercel.app/",
+  "https://mar1nepanel.vercel.app",
   "http://localhost:5173",
   "http://localhost:3000",
 ];
