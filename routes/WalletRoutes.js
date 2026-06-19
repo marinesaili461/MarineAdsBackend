@@ -1,6 +1,5 @@
 import { Router } from "express";
 import { protect } from "../Middlewares/authMiddleware.js";
-import { isAdmin } from "../Middlewares/adminMiddleware.js";
 import {
   getWallet, deposit, getTransactions,
   getAllDeposits, approveDeposit, rejectDeposit,
@@ -13,8 +12,8 @@ router.post("/deposit", protect, deposit);
 router.get("/transactions", protect, getTransactions);
 
 // admin
-router.get("/admin/deposits",        protect, isAdmin, getAllDeposits);
-router.put("/admin/deposits/:id/approve", protect, isAdmin, approveDeposit);
-router.put("/admin/deposits/:id/reject",  protect, isAdmin, rejectDeposit);
+router.get("/admin/deposits",        protect,getAllDeposits);
+router.put("/admin/deposits/:id/approve", protect, approveDeposit);
+router.put("/admin/deposits/:id/reject",  protect,rejectDeposit);
 
 export default router;
