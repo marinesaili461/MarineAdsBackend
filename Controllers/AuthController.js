@@ -37,13 +37,13 @@ export const register = async (req, res) => {
 
 export const login = async (req, res) => {
   try {
-    const { phone, password } = req.body;
-    const user = await User.findOne({ phone });
-    if (!user) return res.status(400).json({ message: "Invalid phone or password" });
+    const { email, password } = req.body;
+    const user = await User.findOne({ email: email?.toLowerCase() });
+    if (!user) return res.status(400).json({ message: "Invalid email or password" });
     if (user.isBlocked) return res.status(403).json({ message: "Your account has been suspended." });
 
     const isMatch = await bcrypt.compare(password, user.password);
-    if (!isMatch) return res.status(400).json({ message: "Invalid phone or password" });
+    if (!isMatch) return res.status(400).json({ message: "Invalid email or password" });
 
     const wallet = await Wallet.findOne({ user: user._id });
 
